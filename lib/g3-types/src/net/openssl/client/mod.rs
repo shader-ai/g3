@@ -515,9 +515,20 @@ impl OpensslClientConfigBuilder {
             .add_cert_decompression_alg(CertCompressionAlgorithm::BROTLI, |in_buf, out_buf| {
                 use std::io::Read;
 
-                brotli::Decompressor::new(in_buf, 4096)
-                    .read(out_buf)
-                    .unwrap_or(0)
+                let mut decompressor = brotli::Decompressor::new(in_buf, 4096);
+                let mut written = 0;
+                while written < out_buf.len() {
+                    match decompressor.read(&mut out_buf[written..]) {
+                        Ok(0) => break,
+                        Ok(n) => written += n,
+                        Err(_) => return 0,
+                    }
+                }
+                if written == out_buf.len() {
+                    written
+                } else {
+                    0
+                }
             })
             .map_err(|e| anyhow!("failed to set cert decompression algorithm: {e}"))?;
 
