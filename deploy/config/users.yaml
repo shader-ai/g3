@@ -1,0 +1,27 @@
+# G3 Proxy user list (Basic auth)
+# Format: array of users with "name" and "token".
+# Token must be crypt(5) or xcrypt_hash (see below).
+#
+# Generate password hash (SHA-512, recommended):
+#   openssl passwd -6 'your_password'
+#
+# Then use in token as xcrypt_hash:
+#   - name: "your_username"
+#     token:
+#       type: xcrypt_hash
+#       value: "$6$rounds=5000$saltsalt$..."  # output of openssl passwd -6
+#
+    # Example (password is "password" - change in production):
+- name: "proxyuser"
+  token:
+    type: xcrypt_hash
+    value: "$1$nnnNhEu5$pIOSCvRf1BC0CCLcjm4ZS0"
+  audit:
+    enable_protocol_inspection: true
+
+- name: "sudeep"
+  token:
+    type: xcrypt_hash
+    value: "$1$Fn.eeJpe$AOW/TMb9uCvKY3x.qDy8R0"
+  audit:
+    enable_protocol_inspection: true

@@ -134,6 +134,16 @@ The brief reason why the task ends.
 
 See the definition of **ServerTaskError** in code file *src/serve/error.rs*.
 
+reason_detail
+-------------
+
+**optional**, **type**: string
+
+The full error message describing why the task ended (e.g. ICAP protocol errors, upstream
+failure details). Truncated at 2048 characters. Omitted for successful tasks (stage
+*Finished*). Use this field when *reason* alone is not enough (e.g. to see ICAP status
+code and reason phrase).
+
 wait_time
 ---------
 

@@ -1,0 +1,91 @@
+# G3 Proxy Configuration - Squid Replacement
+# Reference: https://g3-project.readthedocs.io/projects/g3proxy/en/latest/
+
+worker:
+  thread_number: 4
+
+# Optional: StatsD metrics (uncomment and set target to enable; run g3statsd or any StatsD for TSDB)
+# stat:
+#   target:
+#     udp: 127.0.0.1:8125
+#   prefix: g3proxy
+#   emit_duration: 200ms
+
+# Resolver (required for escaper)
+resolver:
+  - name: default
+    type: c-ares
+
+# Escaper (required for server - without this, traffic is denied)
+escaper:
+  - name: default
+    type: direct_fixed
+    resolver: default
+
+# User group: Basic auth with hashed tokens (file source)
+# Users file must contain array of { name, token } with token as xcrypt_hash or crypt(5)
+# (v1.12+: no top-level "type"; file-based auth is implied by source.type: file)
+user_group:
+  - name: default_users
+    source:
+      type: file
+      path: /etc/g3proxy/users.yaml
+      format: yaml
+    refresh_interval: 60s
+
+# Auditor: ICAP for AI governance.
+# TLS interception (SSL bump) requires a certificate generator service (e.g. g3fcgen).
+# Here we point to a tls_cert_agent at 127.0.0.1:2999 (default for g3fcgen).
+# If you run g3proxy in Docker, make sure this address resolves to your g3fcgen service
+# (for example by changing it to \"g3fcgen:2999\" and adding a g3fcgen container).
+auditor:
+  - name: ai_governance
+    protocol_inspection: {}
+    tls_cert_agent:
+      # Use the hostname 'g3fcgen' (docker service name) and port 2999 (default)
+      query_peer_addr: "127.0.0.1:2999"
+      query_wait_timeout: 10s
+    icap_reqmod_service:
+      # deploy.sh replaces this with icap://${ICAP_IP}:${ICAP_PORT}/ from deploy.env
+      url: "icap://host.docker.internal:1344/reqmod"
+    # Optional: icap_respmod_service: "icap://192.168.23.6:1344/respmod"
+    application_audit_ratio: 1.0
+
+# HTTP proxy server
+server:
+  - name: main_proxy
+    type: http_proxy
+    escaper: default
+    user_group: default_users
+    auditor: ai_governance
+
+    listen:
+      address: 0.0.0.0:3128
+
+    auth_realm: "AI Governance Proxy - Please authenticate"
+
+    # Enable TLS interception for CONNECT requests
+    tls_client: {}
+
+    # Allowed destination ports
+    dst_port_filter:
+      - 21
+      - 70
+      - 80
+      - 210
+      - 280
+      - 443
+      - 488
+      - 591
+      - 777
+      - 1025-65535
+
+    req_header_recv_timeout: 30s
+    rsp_header_recv_timeout: 60s
+
+# Logging configuration
+# - default/stdout: process logs (startup, errors, etc.)
+# - task: logs each request when finished, including failures with reason
+log:
+  default: stdout
+  task: stdout

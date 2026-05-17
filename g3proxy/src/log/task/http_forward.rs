@@ -140,6 +140,16 @@ impl TaskLogForHttpForward<'_> {
             return;
         }
 
+        const REASON_DETAIL_MAX_LEN: usize = 2048;
+        let reason_detail = {
+            let d = format!("{e}");
+            if d.len() > REASON_DETAIL_MAX_LEN {
+                format!("{}...", &d[..REASON_DETAIL_MAX_LEN.saturating_sub(3)])
+            } else {
+                d
+            }
+        };
+
         slog::info!(self.logger, "{}", e;
             "task_type" => "HttpForward",
             "task_id" => LtUuid(&self.task_notes.id),
@@ -158,6 +168,7 @@ impl TaskLogForHttpForward<'_> {
             "tcp_connect_tries" => self.tcp_notes.tries,
             "tcp_connect_spend" => LtDuration(self.tcp_notes.duration),
             "reason" => e.brief(),
+            "reason_detail" => reason_detail,
             "pipeline_wait" => LtDuration(self.http_notes.pipeline_wait),
             "reuse_connection" => self.http_notes.reused_connection,
             "method" => LtHttpMethod(&self.http_notes.method),

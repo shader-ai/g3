@@ -130,6 +130,16 @@ impl TaskLogForUdpConnect<'_> {
             return;
         }
 
+        const REASON_DETAIL_MAX_LEN: usize = 2048;
+        let reason_detail = {
+            let d = format!("{e}");
+            if d.len() > REASON_DETAIL_MAX_LEN {
+                format!("{}...", &d[..REASON_DETAIL_MAX_LEN.saturating_sub(3)])
+            } else {
+                d
+            }
+        };
+
         slog::info!(self.logger, "{}", e;
             "task_type" => "UdpConnect",
             "task_id" => LtUuid(&self.task_notes.id),
@@ -148,6 +158,7 @@ impl TaskLogForUdpConnect<'_> {
             "next_peer_addr" => self.udp_notes.next,
             "next_expire" => self.udp_notes.expire.as_ref().map(LtDateTime),
             "reason" => e.brief(),
+            "reason_detail" => reason_detail,
             "wait_time" => LtDuration(self.task_notes.wait_time),
             "ready_time" => LtDuration(self.task_notes.ready_time),
             "total_time" => LtDuration(self.task_notes.time_elapsed()),

@@ -1,0 +1,80 @@
+# Build from local g3 repo: context = parent of deploy/ (g3 repo root).
+# Run from deploy/:  docker compose build && docker compose up -d
+
+services:
+  g3proxy:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: g3proxy:local
+    container_name: g3proxy
+    restart: unless-stopped
+
+    ports:
+      - "3128:3128"
+
+    volumes:
+      - ./logs:/var/log/g3proxy
+      - ./config/g3proxy.yaml:/etc/g3proxy/g3proxy.yaml:ro
+      - ./config/users.yaml:/etc/g3proxy/users.yaml:ro
+
+    environment:
+      - RUST_LOG=debug
+      - TZ=UTC
+
+    security_opt:
+      - no-new-privileges:true
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 512M
+
+    network_mode: bridge
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  g3fcgen:
+    build:
+      context: ..
+      dockerfile: deploy/g3fcgen.Dockerfile
+    image: g3fcgen:local
+    container_name: g3fcgen
+    restart: unless-stopped
+
+    volumes:
+      - ./config/g3fcgen.yaml:/etc/g3fcgen/g3fcgen.yaml:ro
+      - ./certs:/etc/g3fcgen/certs:ro
+
+    command: ["-c", "/etc/g3fcgen/g3fcgen.yaml"]
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+    network_mode: "service:g3proxy"
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+networks:
+  default:
+    driver: bridge

@@ -137,6 +137,16 @@ impl TaskLogForFtpOverHttp<'_> {
             return;
         }
 
+        const REASON_DETAIL_MAX_LEN: usize = 2048;
+        let reason_detail = {
+            let d = format!("{e}");
+            if d.len() > REASON_DETAIL_MAX_LEN {
+                format!("{}...", &d[..REASON_DETAIL_MAX_LEN.saturating_sub(3)])
+            } else {
+                d
+            }
+        };
+
         slog::info!(self.logger, "{}", e;
             "task_type" => "FtpOverHttp",
             "task_id" => LtUuid(&self.task_notes.id),
@@ -159,6 +169,7 @@ impl TaskLogForFtpOverHttp<'_> {
             "ftp_d_connect_tries" => self.ftp_notes.transfer_tcp_notes.tries,
             "ftp_d_connect_spend" => LtDuration(self.ftp_notes.transfer_tcp_notes.duration),
             "reason" => e.brief(),
+            "reason_detail" => reason_detail,
             "method" => LtHttpMethod(&self.ftp_notes.method),
             "uri" => LtHttpUri::new(&self.ftp_notes.uri, self.ftp_notes.uri_log_max_chars),
             "user_agent" => self.http_user_agent,

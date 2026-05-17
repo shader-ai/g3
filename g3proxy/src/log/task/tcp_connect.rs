@@ -148,6 +148,16 @@ impl TaskLogForTcpConnect<'_> {
             return;
         }
 
+        const REASON_DETAIL_MAX_LEN: usize = 2048;
+        let reason_detail = {
+            let d = format!("{e}");
+            if d.len() > REASON_DETAIL_MAX_LEN {
+                format!("{}...", &d[..REASON_DETAIL_MAX_LEN.saturating_sub(3)])
+            } else {
+                d
+            }
+        };
+
         slog::info!(self.logger, "{}", e;
             "task_type" => "TcpConnect",
             "task_id" => LtUuid(&self.task_notes.id),
@@ -166,6 +176,7 @@ impl TaskLogForTcpConnect<'_> {
             "tcp_connect_tries" => self.tcp_notes.tries,
             "tcp_connect_spend" => LtDuration(self.tcp_notes.duration),
             "reason" => e.brief(),
+            "reason_detail" => reason_detail,
             "wait_time" => LtDuration(self.task_notes.wait_time),
             "ready_time" => LtDuration(self.task_notes.ready_time),
             "total_time" => LtDuration(self.task_notes.time_elapsed()),

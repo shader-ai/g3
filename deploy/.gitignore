@@ -1,0 +1,6 @@
+# Uncomment to keep deploy.env out of git (if it has real credentials)
+# deploy.env
+
+# Optional: ignore generated certs if you regenerate per env
+# certs/ca.crt
+# certs/ca.key

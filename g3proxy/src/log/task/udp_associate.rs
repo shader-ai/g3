@@ -122,6 +122,16 @@ impl TaskLogForUdpAssociate<'_> {
             return;
         }
 
+        const REASON_DETAIL_MAX_LEN: usize = 2048;
+        let reason_detail = {
+            let d = format!("{e}");
+            if d.len() > REASON_DETAIL_MAX_LEN {
+                format!("{}...", &d[..REASON_DETAIL_MAX_LEN.saturating_sub(3)])
+            } else {
+                d
+            }
+        };
+
         slog::info!(self.logger, "{}", e;
             "task_type" => "UdpAssociate",
             "task_id" => LtUuid(&self.task_notes.id),
@@ -136,6 +146,7 @@ impl TaskLogForUdpAssociate<'_> {
             "initial_peer" => LtUpstreamAddr(self.initial_peer),
             "escaper" => self.udp_notes.escaper.as_str(),
             "reason" => e.brief(),
+            "reason_detail" => reason_detail,
             "wait_time" => LtDuration(self.task_notes.wait_time),
             "ready_time" => LtDuration(self.task_notes.ready_time),
             "total_time" => LtDuration(self.task_notes.time_elapsed()),
