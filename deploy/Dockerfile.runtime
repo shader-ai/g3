@@ -1,0 +1,24 @@
+# Runtime-only image using pre-built multi-arch binaries from g3/artifacts.
+# Build from g3 repo root: docker buildx build -f deploy/Dockerfile.runtime --platform linux/amd64,linux/arm64 .
+# Requires: artifacts/amd64/g3proxy and artifacts/arm64/g3proxy (built locally, then commit).
+
+FROM debian:12-slim
+
+ARG TARGETARCH
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY artifacts/${TARGETARCH}/g3proxy /usr/local/bin/g3proxy
+RUN chmod +x /usr/local/bin/g3proxy
+
+RUN mkdir -p /etc/g3proxy /var/log/g3proxy
+
+EXPOSE 3128
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3128 || exit 1
+
+CMD ["/usr/local/bin/g3proxy", "-vv", "-c", "/etc/g3proxy/g3proxy.yaml"]
