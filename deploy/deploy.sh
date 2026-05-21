@@ -88,7 +88,14 @@ fi
 echo ""
 if [ "$AUTH_MODE" = "users_file" ]; then
     echo "🔑 Using users file: $USERS_FILE"
-    cp "$USERS_FILE" "$SCRIPT_DIR/config/users.yaml"
+    USERS_DEST="$SCRIPT_DIR/config/users.yaml"
+    users_src_abs="$(cd "$(dirname "$USERS_FILE")" && pwd -P)/$(basename "$USERS_FILE")"
+    users_dest_abs="$(cd "$(dirname "$USERS_DEST")" && pwd -P)/$(basename "$USERS_DEST")"
+    if [ "$users_src_abs" = "$users_dest_abs" ]; then
+        echo "✅ Users file already in place"
+    else
+        cp "$USERS_FILE" "$USERS_DEST"
+    fi
 else
     echo "🔑 Generating single user from deploy.env..."
     if openssl passwd -6 "$PROXY_PASS" &>/dev/null; then

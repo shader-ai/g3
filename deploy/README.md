@@ -1,72 +1,133 @@
-# G3 Proxy deploy (local repo)
+# G3 Proxy — Build & Deploy
 
-Build and run **g3proxy** and **g3fcgen** from your cloned g3 repo (no GitHub pull).
+Builds **g3proxy** and **g3fcgen** from source using Docker. No pre-built binaries are committed to the repo — everything compiles inside Docker via a multi-stage Rust build with [cargo-chef](https://github.com/LukeMathWalker/cargo-chef) for dependency caching.
+
+---
 
 ## Prerequisites
 
-- Docker and Docker Compose
-- This directory lives inside the [g3](https://github.com/bytedance/g3) repo (e.g. `g3/deploy/`)
+- Docker 20.10+ (BuildKit enabled by default)
+- Docker Compose v2 (`docker compose`)
+- This directory lives inside the g3 repo root at `g3/deploy/`
 
-## Quick start
+---
+
+## Local run
+
+### Option A — deploy script (recommended)
 
 ```bash
-cd deploy
+cd g3/deploy
 
-# 1. Configure (required)
-cp deploy.env deploy.env.local   # optional: keep a local copy
-# Edit deploy.env: AUTH_MODE, USERS_FILE or PROXY_USER/PROXY_PASS, ICAP_IP, ICAP_PORT
+# 1. Configure auth and ICAP
+vi deploy.env
 
-# 2. Build and run (builds from parent g3 repo)
+# 2. Build and start
 ./deploy.sh
 ```
 
-## How it works
+`deploy.sh` handles: cert generation → auth setup → `docker compose build` → `docker compose up -d`.
 
-- **Build context** is the parent of `deploy/` (the g3 repo root). Images are built from the local source with `Dockerfile` and `g3fcgen.Dockerfile` in `deploy/`.
-- **Config and certs** live in `deploy/config/` and `deploy/certs/` and are mounted at runtime (no config baked into images).
-- **deploy.sh** reads `deploy.env`, generates certs if needed, updates ICAP URL in `config/g3proxy.yaml`, then runs `docker compose build` and `docker compose up -d` from `deploy/`.
-
-## Manual build and run
+### Option B — manual
 
 ```bash
-cd deploy
+cd g3/deploy
 docker compose build
 docker compose up -d
 ```
 
-## Structure
-
-```
-deploy/
-├── deploy.sh           # Build and deploy (uses deploy.env)
-├── deploy.env          # AUTH_MODE, USERS_FILE, ICAP_IP, ICAP_PORT
-├── Dockerfile          # g3proxy (context = parent = g3 repo)
-├── g3fcgen.Dockerfile  # g3fcgen (context = parent)
-├── docker-compose.yml  # context: .. ; run from deploy/
-├── config/
-│   ├── g3proxy.yaml
-│   ├── users.yaml
-│   └── g3fcgen.yaml
-├── certs/              # ca.crt, ca.key (generate-certs.sh)
-└── logs/
-```
-
-## Useful commands
-
-```bash
-cd deploy
-docker compose logs -f
-docker compose ps
-docker compose restart
-docker compose down
-```
-
-Test proxy (after installing `certs/ca.crt` on the client):
+### Test
 
 ```bash
 curl -x http://USER:PASS@localhost:3128 https://www.google.com
 ```
 
-## Troubleshooting (ICAP + inspection)
+Install `certs/ca.crt` on the client if you need TLS inspection to work end-to-end.
 
-If YouTube, ChatGPT, or similar sites return 400 or don’t work when using inspection and ICAP auditing, see **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**. In short: the origin is rejecting the request; the usual cause is the **ICAP reqmod** service modifying the request. Temporarily disable `icap_reqmod_service` in `config/g3proxy.yaml` to confirm, then fix the ICAP server to return 204 or the unchanged request.
+---
+
+## Configuration (`deploy.env`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `AUTH_MODE` | `users_file` | `users_file` or `single_user` |
+| `USERS_FILE` | `config/users.yaml` | Path to hashed-token user list (when `AUTH_MODE=users_file`) |
+| `PROXY_USER` | — | Username (when `AUTH_MODE=single_user`) |
+| `PROXY_PASS` | — | Password (when `AUTH_MODE=single_user`) |
+| `ICAP_IP` | `host.docker.internal` | ICAP server IP (use `host.docker.internal` when ICAP runs on the same host as Docker) |
+| `ICAP_PORT` | `1344` | ICAP server port |
+
+---
+
+## Build times
+
+Builds use **cargo-chef**: dependencies compile once into a cached Docker layer. Only application code recompiles on subsequent builds.
+
+| | First build | After (code change only) |
+|---|---|---|
+| Local (Apple Silicon / Graviton) | ~20–30 min | ~3–5 min |
+| CI (`ubuntu-24.04-arm` runner) | ~20–30 min | ~5–10 min |
+
+> The first build is slow because it compiles vendored BoringSSL, QUIC, and all Rust crates from scratch. After that, the dependency layer is cached — locally by Docker's BuildKit layer cache, in CI by ECR (`buildcache` tag).
+
+---
+
+## CI build (`build-g3-proxy.yml`)
+
+The GitHub Actions workflow builds on a native **`ubuntu-24.04-arm`** (Graviton) runner — no QEMU emulation — and pushes `linux/arm64` images to ECR.
+
+| Step | Detail |
+|---|---|
+| Runner | `ubuntu-24.04-arm` (native ARM64, matches EC2 target) |
+| Platform | `linux/arm64` only |
+| Cache | ECR registry cache (`buildcache` tag, `mode=max`) |
+| Images pushed | `gfox/urai-g3proxy`, `gfox/urai-g3fcgen` — tagged with commit SHA and `latest` |
+
+Trigger: `workflow_dispatch` (manual). Tie it to a push trigger on `g3/**` paths when ready for automation.
+
+---
+
+## Directory structure
+
+```
+deploy/
+├── deploy.sh                # Build + run (reads deploy.env)
+├── deploy.env               # Auth and ICAP config (edit before running)
+├── docker-compose.yml       # Local compose (build context = g3 repo root)
+├── Dockerfile               # g3proxy — multi-stage Rust build with cargo-chef
+├── g3fcgen.Dockerfile       # g3fcgen — multi-stage Rust build with cargo-chef
+├── generate-certs.sh        # Generates self-signed CA for TLS inspection
+├── config/
+│   ├── g3proxy.yaml         # g3proxy runtime config
+│   ├── g3fcgen.yaml         # g3fcgen runtime config
+│   └── users.yaml           # Hashed proxy user tokens
+├── certs/                   # ca.crt, ca.key (generated, not committed)
+└── logs/                    # Container log output (mounted at runtime)
+```
+
+---
+
+## Useful commands
+
+```bash
+cd g3/deploy
+
+docker compose logs -f           # tail logs for all services
+docker compose ps                # container status
+docker compose restart g3proxy   # restart one service
+docker compose down              # stop and remove containers
+docker compose build --no-cache  # force full rebuild (skips all layer cache)
+```
+
+---
+
+## Troubleshooting
+
+**Sites return 400 or fail with TLS inspection enabled**
+The ICAP `reqmod` service is likely modifying requests in a way the origin rejects. Temporarily disable `icap_reqmod_service` in `config/g3proxy.yaml` to confirm, then fix the ICAP server to return `204` or pass the request through unchanged. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+**First build fails with OOM**
+`release-lto` (Link Time Optimization) is memory-intensive. Increase Docker's memory limit to at least 4 GB in Docker Desktop settings.
+
+**`docker compose build` uses wrong architecture**
+Builds target the host architecture by default. On Intel Mac you get `amd64`; on Apple Silicon or Graviton you get `arm64`. The EC2 target is `aarch64` (arm64) — build on Apple Silicon or in CI for a matching image.

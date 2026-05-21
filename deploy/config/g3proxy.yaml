@@ -48,7 +48,7 @@ auditor:
     icap_reqmod_service:
       # deploy.sh replaces this with icap://${ICAP_IP}:${ICAP_PORT}/ from deploy.env
       url: "icap://host.docker.internal:1344/reqmod"
-    # Optional: icap_respmod_service: "icap://192.168.23.6:1344/respmod"
+    # Optional: icap_respmod_service: "icap://host.docker.internal:1344/respmod"
     application_audit_ratio: 1.0
 
 # HTTP proxy server

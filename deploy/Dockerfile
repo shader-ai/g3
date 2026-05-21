@@ -1,53 +1,45 @@
-# Build g3proxy from the local g3 repo (build context = g3 repo root).
-# Run: docker compose -f deploy/docker-compose.yml build (from repo root)
-#   or: cd deploy && docker compose build
+# Build g3proxy from source with cargo-chef for dependency layer caching.
+# Build context must be the g3 repo root.
 
-# ---------------------------------------------------------------------------
-# Stage 1: Build from local source
-# ---------------------------------------------------------------------------
-FROM rust:bookworm AS builder
+FROM rust:bookworm AS chef
+RUN cargo install cargo-chef --locked
+WORKDIR /usr/src/g3
 
+# Planner: capture dependency graph without compiling anything
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+# Builder: compile deps (cached layer), then compile source
+FROM chef AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libclang-dev \
     cmake \
     capnproto \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /usr/src/g3
+COPY --from=planner /usr/src/g3/recipe.json recipe.json
+RUN cargo chef cook --profile release-lto \
+    --no-default-features --features vendored-boringssl,rustls-ring,quic,vendored-c-ares \
+    -p g3proxy --recipe-path recipe.json
 
-# Copy dependency files first for better layer caching
-# This allows Docker to cache the dependency download/compile step
-COPY Cargo.toml Cargo.lock ./
-COPY lib ./lib
-COPY g3proxy/Cargo.toml ./g3proxy/
-
-# Copy the rest of the source code
 COPY . .
-
-# Build g3proxy (same features as upstream image)
-# Cache target for fast rebuilds; copy binary to /out so it's in the image
-RUN mkdir -p /out
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/src/g3/target \
-    cargo build --profile release-lto \
+RUN mkdir -p /out \
+    && cargo build --profile release-lto \
     --no-default-features --features vendored-boringssl,rustls-ring,quic,vendored-c-ares \
     -p g3proxy \
-    && cp /usr/src/g3/target/release-lto/g3proxy /out/g3proxy
+    && cp target/release-lto/g3proxy /out/g3proxy
 
-# ---------------------------------------------------------------------------
-# Stage 2: Runtime image (config/certs mounted at runtime)
-# ---------------------------------------------------------------------------
+# Runtime image
 FROM debian:12-slim
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /out/g3proxy /usr/local/bin/g3proxy
-RUN chmod +x /usr/local/bin/g3proxy
-
-RUN mkdir -p /etc/g3proxy /var/log/g3proxy
+RUN chmod +x /usr/local/bin/g3proxy \
+    && mkdir -p /etc/g3proxy /var/log/g3proxy
 
 EXPOSE 3128
 
