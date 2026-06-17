@@ -103,6 +103,91 @@ impl SimpleBindRequestEncoder {
     }
 }
 
+/// Encode a BER definite length into a Vec<u8>.
+fn push_ber_length(buf: &mut Vec<u8>, len: usize) {
+    if len <= 0x7f {
+        buf.push(len as u8);
+    } else if len <= 0xff {
+        buf.push(0x81);
+        buf.push(len as u8);
+    } else {
+        buf.push(0x82);
+        buf.push((len >> 8) as u8);
+        buf.push(len as u8);
+    }
+}
+
+/// Encodes an LDAP SearchRequest (base scope, filter `(objectClass=*)`)
+/// to fetch the listed attributes from `dn`.
+pub(crate) struct SearchRequestEncoder {
+    message_id: u8,
+    buf: Vec<u8>,
+}
+
+impl SearchRequestEncoder {
+    pub(crate) fn new(message_id: u8) -> Self {
+        SearchRequestEncoder {
+            message_id,
+            buf: Vec::with_capacity(512),
+        }
+    }
+
+    pub(crate) fn encode(&mut self, dn: &str, attrs: &[String]) -> &[u8] {
+        // Build attributes list (SEQUENCE OF LDAPString)
+        let mut attrs_inner: Vec<u8> = Vec::new();
+        for attr in attrs {
+            attrs_inner.push(0x04); // octet string
+            push_ber_length(&mut attrs_inner, attr.len());
+            attrs_inner.extend_from_slice(attr.as_bytes());
+        }
+        let mut attrs_seq: Vec<u8> = Vec::new();
+        attrs_seq.push(0x30); // SEQUENCE
+        push_ber_length(&mut attrs_seq, attrs_inner.len());
+        attrs_seq.extend_from_slice(&attrs_inner);
+
+        // filter: (objectClass=*) — present filter [7] = 0x87
+        let filter: &[u8] = &[
+            0x87, 0x0b, b'o', b'b', b'j', b'e', b'c', b't', b'C', b'l', b'a', b's', b's',
+        ];
+
+        // Build SearchRequest body
+        let mut req_body: Vec<u8> = Vec::new();
+        // baseObject LDAPDN (octet string)
+        req_body.push(0x04);
+        push_ber_length(&mut req_body, dn.len());
+        req_body.extend_from_slice(dn.as_bytes());
+        // scope: baseObject (0)
+        req_body.extend_from_slice(&[0x0a, 0x01, 0x00]);
+        // derefAliases: neverDerefAliases (0)
+        req_body.extend_from_slice(&[0x0a, 0x01, 0x00]);
+        // sizeLimit: 1
+        req_body.extend_from_slice(&[0x02, 0x01, 0x01]);
+        // timeLimit: 5
+        req_body.extend_from_slice(&[0x02, 0x01, 0x05]);
+        // typesOnly: false
+        req_body.extend_from_slice(&[0x01, 0x01, 0x00]);
+        // filter
+        req_body.extend_from_slice(filter);
+        // attributes
+        req_body.extend_from_slice(&attrs_seq);
+
+        // SearchRequest: [APPLICATION 3] constructed = 0x63
+        let mut proto_op: Vec<u8> = Vec::new();
+        proto_op.push(0x63);
+        push_ber_length(&mut proto_op, req_body.len());
+        proto_op.extend_from_slice(&req_body);
+
+        // LDAPMessage: SEQUENCE { messageID, protocolOp }
+        let msg_content_len = 3 + proto_op.len(); // 3 bytes for messageID
+        self.buf.clear();
+        self.buf.push(0x30); // SEQUENCE
+        push_ber_length(&mut self.buf, msg_content_len);
+        self.buf.extend_from_slice(&[0x02, 0x01, self.message_id]);
+        self.buf.extend_from_slice(&proto_op);
+        &self.buf
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

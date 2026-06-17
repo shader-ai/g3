@@ -843,6 +843,9 @@ impl<'a> HttpProxyForwardTask<'a> {
                     if let Some(name) = self.task_notes.raw_user_name() {
                         adapter.set_client_username(name.clone());
                     }
+                    if let Some(attrs) = self.task_notes.user_ctx().and_then(|c| c.ldap_attrs.clone()) {
+                        adapter.set_client_attrs(attrs);
+                    }
                     let r = self
                         .run_with_adaptation(clt_r, clt_w, ups_c, adapter, &mut adaptation_state)
                         .await;

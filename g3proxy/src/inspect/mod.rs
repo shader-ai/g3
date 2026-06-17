@@ -3,6 +3,7 @@
  * Copyright 2023-2025 ByteDance and/or its affiliates.
  */
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -50,6 +51,7 @@ pub(super) struct StreamInspectUserContext {
     user: Arc<User>,
     user_site: Option<Arc<UserSite>>,
     forbidden_stats: Arc<UserForbiddenStats>,
+    pub(crate) ldap_attrs: Option<Arc<HashMap<String, String>>>,
 }
 
 impl StreamInspectUserContext {
@@ -81,6 +83,10 @@ impl StreamInspectTaskNotes {
             .and_then(|ctx| ctx.raw_user_name.as_ref())
     }
 
+    pub(crate) fn ldap_attrs(&self) -> Option<Arc<HashMap<String, String>>> {
+        self.user_ctx.as_ref().and_then(|ctx| ctx.ldap_attrs.clone())
+    }
+
     #[inline]
     pub(crate) fn task_id(&self) -> &Uuid {
         &self.task_id
@@ -99,6 +105,7 @@ impl From<&ServerTaskNotes> for StreamInspectTaskNotes {
                 user: ctx.user().clone(),
                 user_site: ctx.user_site().cloned(),
                 forbidden_stats: ctx.forbidden_stats().clone(),
+                ldap_attrs: ctx.ldap_attrs.clone(),
             }),
         }
     }
@@ -188,6 +195,11 @@ impl<SC: ServerConfig> StreamInspectContext<SC> {
     #[inline]
     fn raw_user_name(&self) -> Option<&ArcStr> {
         self.task_notes.raw_username()
+    }
+
+    #[inline]
+    fn ldap_attrs(&self) -> Option<Arc<HashMap<String, String>>> {
+        self.task_notes.ldap_attrs()
     }
 
     #[inline]

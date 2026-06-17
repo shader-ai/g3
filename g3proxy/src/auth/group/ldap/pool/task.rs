@@ -3,6 +3,7 @@
  * Copyright 2026 G3-OSS developers.
  */
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -15,7 +16,7 @@ use g3_io_ext::openssl::MaybeSslStream;
 use g3_io_ext::{AsyncStream, LimitedWriteExt};
 
 use super::{LdapAuthRequest, LdapConnector};
-use crate::auth::group::ldap::{LdapMessageReceiver, SimpleBindRequestEncoder};
+use crate::auth::group::ldap::{LdapMessageReceiver, SearchRequestEncoder, SimpleBindRequestEncoder};
 use crate::config::auth::LdapUserGroupConfig;
 
 pub(super) struct LdapAuthTask {
@@ -24,16 +25,23 @@ pub(super) struct LdapAuthTask {
     quit: bool,
     pending_request: Option<LdapAuthRequest>,
     request_encoder: SimpleBindRequestEncoder,
+    search_encoder: Option<SearchRequestEncoder>,
 }
 
 impl LdapAuthTask {
     pub(super) fn new(config: Arc<LdapUserGroupConfig>, connector: Arc<LdapConnector>) -> Self {
+        let search_encoder = if config.extra_ldap_attrs.is_empty() {
+            None
+        } else {
+            Some(SearchRequestEncoder::new(0x10))
+        };
         LdapAuthTask {
             config,
             connector,
             quit: false,
             pending_request: None,
             request_encoder: SimpleBindRequestEncoder::default(),
+            search_encoder,
         }
     }
 
@@ -108,8 +116,23 @@ impl LdapAuthTask {
                             debug!("unexpected response for message {}", message.id());
                             continue;
                         } else {
-                            self.handle_response(message.payload(), r)
-                                .map_err(|e| anyhow!("invalid response: {e}"))?;
+                            let bind_dn = format!(
+                                "{}={},{}",
+                                self.config.username_attribute, r.username, self.config.base_dn
+                            );
+                            // Copy payload out so message (and its borrow of ldap_rsp_receiver) is dropped
+                            let payload = message.payload().to_vec();
+                            drop(message);
+                            self.handle_response(
+                                &payload,
+                                r,
+                                &mut writer,
+                                &mut reader,
+                                &mut ldap_rsp_receiver,
+                                &bind_dn,
+                            )
+                            .await
+                            .map_err(|e| anyhow!("invalid response: {e}"))?;
                         }
                     }
                     Ok(Err(e)) => {
@@ -211,16 +234,106 @@ impl LdapAuthTask {
         }
     }
 
-    fn handle_response(&self, op_data: &[u8], r: LdapAuthRequest) -> anyhow::Result<()> {
+    async fn handle_response<W, R>(
+        &mut self,
+        op_data: &[u8],
+        r: LdapAuthRequest,
+        writer: &mut W,
+        reader: &mut R,
+        ldap_rsp_receiver: &mut LdapMessageReceiver,
+        bind_dn: &str,
+    ) -> anyhow::Result<()>
+    where
+        W: AsyncWrite + Unpin,
+        R: AsyncRead + Unpin,
+    {
         let rsp_sequence = LdapSequence::parse_bind_response(op_data)?;
         let data = rsp_sequence.data();
         let result = LdapResult::parse(data)?;
         if result.is_success() {
-            let _ = r.result_sender.send(Some((r.username, r.password)));
+            let attrs = if let Some(ref mut enc) = self.search_encoder {
+                let search_msg = enc.encode(bind_dn, &self.config.extra_ldap_attrs);
+                if writer.write_all_flush(search_msg).await.is_ok() {
+                    match tokio::time::timeout(
+                        self.config.response_timeout,
+                        Self::recv_search_attrs(ldap_rsp_receiver, reader, &self.config.extra_ldap_attrs),
+                    )
+                    .await
+                    {
+                        Ok(Ok(attrs)) => attrs,
+                        _ => HashMap::new(),
+                    }
+                } else {
+                    HashMap::new()
+                }
+            } else {
+                HashMap::new()
+            };
+            let _ = r.result_sender.send(Some((r.username, r.password, attrs)));
         } else {
-            // TODO log error
             let _ = r.result_sender.send(None);
         }
         Ok(())
+    }
+
+    /// Drain search result messages until SearchResultDone, collecting attribute values.
+    async fn recv_search_attrs<R>(
+        ldap_rsp_receiver: &mut LdapMessageReceiver,
+        reader: &mut R,
+        requested_attrs: &[String],
+    ) -> anyhow::Result<HashMap<String, String>>
+    where
+        R: AsyncRead + Unpin,
+    {
+        let mut attrs: HashMap<String, String> = HashMap::new();
+        loop {
+            let message = ldap_rsp_receiver.recv(reader).await?;
+            let payload = message.payload();
+            if payload.is_empty() {
+                break;
+            }
+            if LdapSequence::parse_search_result_done(payload).is_ok() {
+                break;
+            }
+            if let Ok(entry_seq) = LdapSequence::parse_search_result_entry(payload) {
+                let entry_data = entry_seq.data();
+                // Skip the objectName LDAPDN (octet string)
+                if let Ok(dn_seq) = LdapSequence::parse_octet_string(entry_data) {
+                    let offset = dn_seq.encoded_len();
+                    // Parse partial attribute list (SEQUENCE OF)
+                    if let Ok(attr_list) = LdapSequence::parse_sequence(&entry_data[offset..]) {
+                        let mut list_data = attr_list.data();
+                        while !list_data.is_empty() {
+                            // Each PartialAttribute is a SEQUENCE { type, vals }
+                            if let Ok(partial) = LdapSequence::parse_sequence(list_data) {
+                                let partial_data = partial.data();
+                                if let Ok(attr_type) = LdapSequence::parse_octet_string(partial_data) {
+                                    let attr_name = std::str::from_utf8(attr_type.data())
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let val_offset = attr_type.encoded_len();
+                                    if let Ok(val_set) = LdapSequence::parse_set(&partial_data[val_offset..]) {
+                                        let val_data = val_set.data();
+                                        if let Ok(val_str) = LdapSequence::parse_octet_string(val_data) {
+                                            if let Ok(s) = std::str::from_utf8(val_str.data()) {
+                                                // Only keep attrs we asked for, map by lowercased name
+                                                let lower = attr_name.to_lowercase();
+                                                if requested_attrs.iter().any(|a| a.to_lowercase() == lower) {
+                                                    attrs.insert(lower, s.to_string());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                list_data = &list_data[partial.encoded_len()..];
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(attrs)
     }
 }

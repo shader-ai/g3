@@ -707,6 +707,7 @@ pub(crate) struct UserContext {
     site_req_stats: Option<Arc<UserRequestStats>>,
     site_duration_recorder: Option<Arc<UserSiteDurationRecorder>>,
     reused_client_connection: bool,
+    pub(crate) ldap_attrs: Option<Arc<std::collections::HashMap<String, String>>>,
 }
 
 impl UserContext {
@@ -730,6 +731,7 @@ impl UserContext {
             site_req_stats: None,
             site_duration_recorder: None,
             reused_client_connection: false,
+            ldap_attrs: None,
         }
     }
 

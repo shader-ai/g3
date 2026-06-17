@@ -22,7 +22,7 @@ thread_local! {
 
 #[derive(Default)]
 struct UserLocalCache {
-    password_map: BTreeMap<String, Instant>,
+    password_map: BTreeMap<String, (Instant, HashMap<String, String>)>,
 }
 
 struct GroupLocalCache {
@@ -43,7 +43,11 @@ impl GroupLocalCache {
     }
 }
 
-pub(super) fn has_valid_password(group: &NodeName, username: &str, password: &str) -> bool {
+pub(super) fn get_cached_attrs(
+    group: &NodeName,
+    username: &str,
+    password: &str,
+) -> Option<HashMap<String, String>> {
     CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         let group = cache
@@ -51,18 +55,19 @@ pub(super) fn has_valid_password(group: &NodeName, username: &str, password: &st
             .or_insert_with(GroupLocalCache::default);
 
         let Some(user) = group.user_map.get_mut(username) else {
-            return false;
+            return None;
         };
 
-        let Some((p, t)) = user.password_map.remove_entry(password) else {
-            return false;
+        let Some((p, (t, attrs))) = user.password_map.remove_entry(password) else {
+            return None;
         };
 
         if t > Instant::now() {
-            user.password_map.insert(p, t);
-            true
+            let attrs_clone = attrs.clone();
+            user.password_map.insert(p, (t, attrs));
+            Some(attrs_clone)
         } else {
-            false
+            None
         }
     })
 }
@@ -73,6 +78,7 @@ pub(super) fn save_user_password(
     username: String,
     password: String,
     expire_time: Duration,
+    attrs: HashMap<String, String>,
 ) {
     CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
@@ -86,6 +92,6 @@ pub(super) fn save_user_password(
             .get_or_insert_mut(username, UserLocalCache::default);
 
         user.password_map
-            .insert(password, Instant::now() + expire_time);
+            .insert(password, (Instant::now() + expire_time, attrs));
     })
 }

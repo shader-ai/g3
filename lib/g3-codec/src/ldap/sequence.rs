@@ -54,6 +54,22 @@ impl<'a> LdapSequence<'a> {
         Self::parse_with_identifier(data, 0x8a)
     }
 
+    pub fn parse_search_result_entry(data: &'a [u8]) -> Result<Self, LdapSequenceParseError> {
+        Self::parse_with_identifier(data, 0x64)
+    }
+
+    pub fn parse_search_result_done(data: &'a [u8]) -> Result<Self, LdapSequenceParseError> {
+        Self::parse_with_identifier(data, 0x65)
+    }
+
+    pub fn parse_sequence(data: &'a [u8]) -> Result<Self, LdapSequenceParseError> {
+        Self::parse_with_identifier(data, 0x30)
+    }
+
+    pub fn parse_set(data: &'a [u8]) -> Result<Self, LdapSequenceParseError> {
+        Self::parse_with_identifier(data, 0x31)
+    }
+
     fn parse_with_identifier(
         data: &'a [u8],
         identifier: u8,

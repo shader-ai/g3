@@ -4,7 +4,7 @@
  */
 
 mod request;
-pub(super) use request::SimpleBindRequestEncoder;
+pub(super) use request::{SearchRequestEncoder, SimpleBindRequestEncoder};
 
 mod message;
 pub(super) use message::LdapMessageReceiver;

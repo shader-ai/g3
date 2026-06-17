@@ -18,7 +18,7 @@ use crate::auth::{User, UserContext, UserType};
 use crate::config::auth::{LdapUserGroupConfig, UserGroupConfig};
 
 mod protocol;
-use protocol::{LdapMessageReceiver, SimpleBindRequestEncoder};
+use protocol::{LdapMessageReceiver, SearchRequestEncoder, SimpleBindRequestEncoder};
 
 mod pool;
 use pool::{LdapAuthPool, LdapAuthPoolHandle};
@@ -66,31 +66,39 @@ impl LdapUserGroup {
     ) -> Result<UserContext, UserAuthError> {
         match &self.base.config.unmanaged_user {
             Some(unmanaged_user_config) => {
-                self.pool_handle
+                let attrs = self.pool_handle
                     .check_username_password(username, password.as_original())
                     .await?;
 
                 if let Some((user, user_type)) = self.base.get_user(username) {
-                    return Ok(UserContext::new(
+                    let mut ctx = UserContext::new(
                         Some(username.into()),
                         user,
                         user_type,
                         server_name,
                         server_extra_tags,
-                    ));
+                    );
+                    if !attrs.is_empty() {
+                        ctx.ldap_attrs = Some(Arc::new(attrs));
+                    }
+                    return Ok(ctx);
                 }
 
                 let mut ht = self.unmanaged_users.lock().unwrap();
                 match ht.entry(username.into()) {
                     Entry::Occupied(o) => {
                         let user = o.get().clone();
-                        Ok(UserContext::new(
+                        let mut ctx = UserContext::new(
                             Some(username.into()),
                             user.clone(),
                             UserType::Unmanaged,
                             server_name,
                             server_extra_tags,
-                        ))
+                        );
+                        if !attrs.is_empty() {
+                            ctx.ldap_attrs = Some(Arc::new(attrs));
+                        }
+                        Ok(ctx)
                     }
                     Entry::Vacant(v) => {
                         let username = ArcStr::from(username);
@@ -105,28 +113,36 @@ impl LdapUserGroup {
 
                         v.insert(user.clone());
 
-                        Ok(UserContext::new(
+                        let mut ctx = UserContext::new(
                             Some(username),
                             user.clone(),
                             UserType::Unmanaged,
                             server_name,
                             server_extra_tags,
-                        ))
+                        );
+                        if !attrs.is_empty() {
+                            ctx.ldap_attrs = Some(Arc::new(attrs));
+                        }
+                        Ok(ctx)
                     }
                 }
             }
             None => {
                 if let Some((user, user_type)) = self.base.get_user(username) {
-                    self.pool_handle
+                    let attrs = self.pool_handle
                         .check_username_password(username, password.as_original())
                         .await?;
-                    Ok(UserContext::new(
+                    let mut ctx = UserContext::new(
                         Some(username.into()),
                         user,
                         user_type,
                         server_name,
                         server_extra_tags,
-                    ))
+                    );
+                    if !attrs.is_empty() {
+                        ctx.ldap_attrs = Some(Arc::new(attrs));
+                    }
+                    Ok(ctx)
                 } else {
                     Err(UserAuthError::NoSuchUser)
                 }

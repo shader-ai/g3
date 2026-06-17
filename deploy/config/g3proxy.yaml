@@ -26,11 +26,18 @@ escaper:
 # Any user in AD can authenticate — no static password files.
 # G3 constructs the bind DN as: cn=<username>,<ldap_url base DN>
 # and performs a live bind. Wrong password → 407, correct → traffic allowed.
+# After a successful bind G3 fetches the configured AD attributes and injects
+# them as X-Client-* headers so ICAPeg and URAI need zero LDAP credentials.
 user_group:
   - name: default_users
     type: ldap
-    ldap_url: "ldap://127.0.0.1:389/CN=Users,DC=gfoxai,DC=local"
+    ldap_url: "ldap://host.docker.internal:389/CN=Users,DC=gfoxai,DC=local"
     username_attribute: cn
+    response_timeout: 10s
+    extra_ldap_attrs:
+      - mail
+      - givenName
+      - sn
     pool:
       min_idle_count: 1
     unmanaged_user:
@@ -49,7 +56,7 @@ auditor:
     tls_cert_agent:
       # In Docker, resolve via service DNS. Prefix with '@' to enable runtime DNS resolution.
       # g3fcgen must listen on a non-loopback address for this to work.
-      query_peer_addr: "172.18.0.2:2999"
+      query_peer_addr: "@g3fcgen:2999"
       query_wait_timeout: 10s
     icap_reqmod_service:
       # deploy.sh replaces this with icap://${ICAP_IP}:${ICAP_PORT}/ from deploy.env

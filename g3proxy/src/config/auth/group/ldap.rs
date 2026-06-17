@@ -37,6 +37,7 @@ pub(crate) struct LdapUserGroupConfig {
     pub(crate) queue_wait_timeout: Duration,
     pub(crate) cache_user_count: NonZeroUsize,
     pub(crate) cache_expire_time: Duration,
+    pub(crate) extra_ldap_attrs: Vec<String>,
 }
 
 impl LdapUserGroupConfig {
@@ -50,7 +51,7 @@ impl LdapUserGroupConfig {
             base_dn: ArcStr::new(),
             username_attribute: "uid".to_string(),
             unmanaged_user: None,
-            max_message_size: 256,
+            max_message_size: 4096,
             connect_timeout: Duration::from_secs(4),
             response_timeout: Duration::from_secs(2),
             connection_pool: ConnectionPoolConfig::new(1024, 8),
@@ -58,6 +59,7 @@ impl LdapUserGroupConfig {
             queue_wait_timeout: Duration::from_secs(4),
             cache_user_count: super::DEFAULT_CACHE_USER_COUNT,
             cache_expire_time: super::DEFAULT_CACHE_EXPIRE_TIME,
+            extra_ldap_attrs: Vec::new(),
         }
     }
 
@@ -182,6 +184,18 @@ impl LdapUserGroupConfig {
                 self.cache_expire_time = g3_yaml::humanize::as_duration(v)
                     .context(format!("invalid humanize duration value for key {k}"))?;
                 Ok(())
+            }
+            "extra_ldap_attrs" | "ldap_extra_attrs" => {
+                if let Yaml::Array(arr) = v {
+                    self.extra_ldap_attrs = arr
+                        .iter()
+                        .map(|item| g3_yaml::value::as_string(item))
+                        .collect::<Result<Vec<_>, _>>()
+                        .context(format!("invalid extra ldap attrs value for key {k}"))?;
+                    Ok(())
+                } else {
+                    Err(anyhow!("expected array value for key {k}"))
+                }
             }
             _ => self.basic.set(k, v),
         }

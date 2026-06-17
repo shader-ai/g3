@@ -73,6 +73,7 @@ impl IcapReqmodClient {
             idle_checker,
             client_addr: None,
             client_username: None,
+            client_attrs: None,
         })
     }
 }
@@ -87,6 +88,7 @@ pub struct HttpRequestAdapter<I: IdleCheck> {
     idle_checker: I,
     client_addr: Option<SocketAddr>,
     client_username: Option<ArcStr>,
+    client_attrs: Option<Arc<std::collections::HashMap<String, String>>>,
 }
 
 pub struct ReqmodAdaptationRunState {
@@ -138,12 +140,19 @@ impl<I: IdleCheck> HttpRequestAdapter<I> {
         self.client_username = Some(user);
     }
 
+    pub fn set_client_attrs(&mut self, attrs: Arc<std::collections::HashMap<String, String>>) {
+        self.client_attrs = Some(attrs);
+    }
+
     fn push_extended_headers(&self, data: &mut Vec<u8>) {
         if let Some(addr) = self.client_addr {
             crate::serialize::add_client_addr(data, addr);
         }
         if let Some(user) = &self.client_username {
             crate::serialize::add_client_username(data, user);
+        }
+        if let Some(attrs) = &self.client_attrs {
+            crate::serialize::add_client_attrs(data, attrs);
         }
     }
 
