@@ -63,7 +63,6 @@ impl IcapReqmodClient {
             idle_checker,
             client_addr: None,
             client_username: None,
-            client_attrs: None,
         })
     }
 }
@@ -80,7 +79,6 @@ pub struct H2RequestAdapter<I: IdleCheck> {
     idle_checker: I,
     client_addr: Option<SocketAddr>,
     client_username: Option<ArcStr>,
-    client_attrs: Option<Arc<std::collections::HashMap<String, String>>>,
 }
 
 pub struct ReqmodAdaptationRunState {
@@ -132,10 +130,6 @@ impl<I: IdleCheck> H2RequestAdapter<I> {
         self.client_username = Some(user);
     }
 
-    pub fn set_client_attrs(&mut self, attrs: Arc<std::collections::HashMap<String, String>>) {
-        self.client_attrs = Some(attrs);
-    }
-
     fn push_extended_headers(&self, data: &mut Vec<u8>, extensions: Option<&Extensions>) {
         data.put_slice(b"X-Transformed-From: HTTP/2.0\r\n");
         if let Some(addr) = self.client_addr {
@@ -143,9 +137,6 @@ impl<I: IdleCheck> H2RequestAdapter<I> {
         }
         if let Some(user) = &self.client_username {
             crate::serialize::add_client_username(data, user);
-        }
-        if let Some(attrs) = &self.client_attrs {
-            crate::serialize::add_client_attrs(data, attrs);
         }
         if let Some(ext) = extensions
             && let Some(p) = ext.get::<Protocol>()

@@ -244,9 +244,6 @@ where
                     if let Some(username) = self.ctx.raw_user_name() {
                         adapter.set_client_username(username.clone());
                     }
-                    if let Some(attrs) = self.ctx.ldap_attrs() {
-                        adapter.set_client_attrs(attrs);
-                    }
                     let r = self
                         .forward_with_adaptation(
                             ups_send_req,

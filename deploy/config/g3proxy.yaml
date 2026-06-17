@@ -24,20 +24,16 @@ escaper:
 
 # User group: Live LDAP bind against Samba AD DC.
 # Any user in AD can authenticate — no static password files.
-# G3 constructs the bind DN as: cn=<username>,<ldap_url base DN>
-# and performs a live bind. Wrong password → 407, correct → traffic allowed.
-# After a successful bind G3 fetches the configured AD attributes and injects
-# them as X-Client-* headers so ICAPeg and URAI need zero LDAP credentials.
+# G3 performs a UPN bind (username@gfoxai.local) and passes X-Client-Username
+# to ICAPeg. ICAPeg then does a service-account LDAP search to enrich with
+# email, display_name, and department before forwarding to URAI.
 user_group:
   - name: default_users
     type: ldap
     ldap_url: "ldap://host.docker.internal:389/CN=Users,DC=gfoxai,DC=local"
     username_attribute: cn
+    user_principal_suffix: gfoxai.local
     response_timeout: 10s
-    extra_ldap_attrs:
-      - mail
-      - givenName
-      - sn
     pool:
       min_idle_count: 1
     unmanaged_user:

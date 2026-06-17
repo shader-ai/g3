@@ -4,7 +4,7 @@
  */
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
@@ -15,14 +15,14 @@ use tokio::time::Instant;
 use g3_types::metrics::NodeName;
 
 thread_local! {
-    static CACHE: RefCell<HashMap<NodeName, GroupLocalCache, FixedState>> = const {
-        RefCell::new(HashMap::with_hasher(FixedState::with_seed(0)))
+    static CACHE: RefCell<std::collections::HashMap<NodeName, GroupLocalCache, FixedState>> = const {
+        RefCell::new(std::collections::HashMap::with_hasher(FixedState::with_seed(0)))
     };
 }
 
 #[derive(Default)]
 struct UserLocalCache {
-    password_map: BTreeMap<String, (Instant, HashMap<String, String>)>,
+    password_map: BTreeMap<String, Instant>,
 }
 
 struct GroupLocalCache {
@@ -43,11 +43,11 @@ impl GroupLocalCache {
     }
 }
 
-pub(super) fn get_cached_attrs(
+pub(super) fn has_valid_password(
     group: &NodeName,
     username: &str,
     password: &str,
-) -> Option<HashMap<String, String>> {
+) -> bool {
     CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         let group = cache
@@ -55,19 +55,18 @@ pub(super) fn get_cached_attrs(
             .or_insert_with(GroupLocalCache::default);
 
         let Some(user) = group.user_map.get_mut(username) else {
-            return None;
+            return false;
         };
 
-        let Some((p, (t, attrs))) = user.password_map.remove_entry(password) else {
-            return None;
+        let Some((p, t)) = user.password_map.remove_entry(password) else {
+            return false;
         };
 
         if t > Instant::now() {
-            let attrs_clone = attrs.clone();
-            user.password_map.insert(p, (t, attrs));
-            Some(attrs_clone)
+            user.password_map.insert(p, t);
+            true
         } else {
-            None
+            false
         }
     })
 }
@@ -78,7 +77,6 @@ pub(super) fn save_user_password(
     username: String,
     password: String,
     expire_time: Duration,
-    attrs: HashMap<String, String>,
 ) {
     CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
@@ -92,6 +90,6 @@ pub(super) fn save_user_password(
             .get_or_insert_mut(username, UserLocalCache::default);
 
         user.password_map
-            .insert(password, (Instant::now() + expire_time, attrs));
+            .insert(password, Instant::now() + expire_time);
     })
 }

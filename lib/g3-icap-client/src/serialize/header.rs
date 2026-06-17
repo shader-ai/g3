@@ -27,23 +27,6 @@ pub(crate) fn add_client_username(buf: &mut Vec<u8>, user: &str) {
     buf.put_slice(b"\r\n");
 }
 
-pub(crate) fn add_client_attrs(buf: &mut Vec<u8>, attrs: &std::collections::HashMap<String, String>) {
-    for (key, value) in attrs {
-        buf.put_slice(b"X-Client-");
-        // Capitalise the first letter of the key for conventional header casing
-        let mut chars = key.chars();
-        if let Some(first) = chars.next() {
-            for c in first.to_uppercase() {
-                buf.put_slice(c.encode_utf8(&mut [0u8; 4]).as_bytes());
-            }
-        }
-        buf.put_slice(chars.as_str().as_bytes());
-        buf.put_slice(b": ");
-        buf.put_slice(value.as_bytes());
-        buf.put_slice(b"\r\n");
-    }
-}
-
 pub(crate) fn add_shared(buf: &mut Vec<u8>, headers: &HttpHeaderMap) {
     headers.for_each(|name, value| {
         buf.put_slice(name.as_str().as_bytes());

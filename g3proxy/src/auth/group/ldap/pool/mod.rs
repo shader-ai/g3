@@ -3,7 +3,6 @@
  * Copyright 2026 G3-OSS developers.
  */
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -31,7 +30,7 @@ struct LdapAuthRequest {
     username: String,
     password: String,
     retry: bool,
-    result_sender: oneshot::Sender<Option<(String, String, HashMap<String, String>)>>,
+    result_sender: oneshot::Sender<Option<(String, String)>>,
 }
 
 pub(super) struct LdapAuthPoolHandle {
@@ -51,13 +50,13 @@ impl LdapAuthPoolHandle {
         &self,
         username: &str,
         password: &str,
-    ) -> Result<HashMap<String, String>, UserAuthError> {
-        if let Some(attrs) = crate::auth::cache::get_cached_attrs(
+    ) -> Result<(), UserAuthError> {
+        if crate::auth::cache::has_valid_password(
             self.config.basic_config().name(),
             username,
             password,
         ) {
-            return Ok(attrs);
+            return Ok(());
         }
 
         let (sender, receiver) = oneshot::channel();
@@ -74,16 +73,15 @@ impl LdapAuthPoolHandle {
         let _ = self.req_sender.send(req).await;
 
         match tokio::time::timeout(self.config.queue_wait_timeout, receiver).await {
-            Ok(Ok(Some((username, password, attrs)))) => {
+            Ok(Ok(Some((username, password)))) => {
                 crate::auth::cache::save_user_password(
                     self.config.basic_config().name(),
                     self.config.cache_user_count,
                     username,
                     password,
                     self.config.cache_expire_time,
-                    attrs.clone(),
                 );
-                Ok(attrs)
+                Ok(())
             }
             Ok(Ok(None)) => Err(UserAuthError::TokenNotMatch),
             Ok(Err(_)) => Err(UserAuthError::RemoteError),

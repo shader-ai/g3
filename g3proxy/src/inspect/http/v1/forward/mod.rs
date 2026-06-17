@@ -211,9 +211,6 @@ impl<'a, SC: ServerConfig> H1ForwardTask<'a, SC> {
                 if let Some(username) = self.ctx.raw_user_name() {
                     adapter.set_client_username(username.clone());
                 }
-                if let Some(attrs) = self.ctx.ldap_attrs() {
-                    adapter.set_client_attrs(attrs);
-                }
                 adapter
             }
             Err(e) => {

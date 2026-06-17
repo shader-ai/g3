@@ -37,7 +37,7 @@ pub(crate) struct LdapUserGroupConfig {
     pub(crate) queue_wait_timeout: Duration,
     pub(crate) cache_user_count: NonZeroUsize,
     pub(crate) cache_expire_time: Duration,
-    pub(crate) extra_ldap_attrs: Vec<String>,
+    pub(crate) user_principal_suffix: Option<String>,
 }
 
 impl LdapUserGroupConfig {
@@ -59,7 +59,7 @@ impl LdapUserGroupConfig {
             queue_wait_timeout: Duration::from_secs(4),
             cache_user_count: super::DEFAULT_CACHE_USER_COUNT,
             cache_expire_time: super::DEFAULT_CACHE_EXPIRE_TIME,
-            extra_ldap_attrs: Vec::new(),
+            user_principal_suffix: None,
         }
     }
 
@@ -185,17 +185,11 @@ impl LdapUserGroupConfig {
                     .context(format!("invalid humanize duration value for key {k}"))?;
                 Ok(())
             }
-            "extra_ldap_attrs" | "ldap_extra_attrs" => {
-                if let Yaml::Array(arr) = v {
-                    self.extra_ldap_attrs = arr
-                        .iter()
-                        .map(|item| g3_yaml::value::as_string(item))
-                        .collect::<Result<Vec<_>, _>>()
-                        .context(format!("invalid extra ldap attrs value for key {k}"))?;
-                    Ok(())
-                } else {
-                    Err(anyhow!("expected array value for key {k}"))
-                }
+            "user_principal_suffix" | "upn_suffix" => {
+                let s = g3_yaml::value::as_string(v)
+                    .context(format!("invalid string value for key {k}"))?;
+                self.user_principal_suffix = Some(s);
+                Ok(())
             }
             _ => self.basic.set(k, v),
         }
