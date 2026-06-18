@@ -34,7 +34,10 @@ services:
           cpus: '1'
           memory: 512M
 
-    network_mode: bridge
+    depends_on:
+      - g3fcgen
+    networks:
+      - default
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -56,7 +59,8 @@ services:
       - ./config/g3fcgen.yaml:/etc/g3fcgen/g3fcgen.yaml:ro
       - ./certs:/etc/g3fcgen/certs:ro
 
-    command: ["-c", "/etc/g3fcgen/g3fcgen.yaml"]
+    # Default g3fcgen listen is 127.0.0.1:2999. Set group-name to make it listen on [::]:2999 (all interfaces).
+    command: ["-c", "/etc/g3fcgen/g3fcgen.yaml", "-G", "port2999"]
 
     deploy:
       resources:
@@ -67,7 +71,8 @@ services:
           cpus: '0.1'
           memory: 128M
 
-    network_mode: "service:g3proxy"
+    networks:
+      - default
 
     logging:
       driver: "json-file"

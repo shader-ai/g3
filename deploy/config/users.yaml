@@ -15,13 +15,13 @@
 - name: "proxyuser"
   token:
     type: xcrypt_hash
-    value: "$1$nnnNhEu5$pIOSCvRf1BC0CCLcjm4ZS0"
+    value: "$6$k3R.PEpbhOzhOzfm$GKZIlQau9qJ43YVVM.ntIyK6G.KUMUVb1QQuv8yl5xPuwlroCMwiBDsA8x8SmkvO7LgE1hXWvSUHmRZAqDJlJ/"
   audit:
     enable_protocol_inspection: true
 
-- name: "sudeep"
+- name: "rohan"
   token:
     type: xcrypt_hash
-    value: "$1$Fn.eeJpe$AOW/TMb9uCvKY3x.qDy8R0"
+    value: "$6$6gJFESZtKkJ/vjWt$rW7WqF26GBu.aUc4Sm6hHW7MWTLfFxnzQFhQchaiE7G.lM84n7fuV9PCaXC8CtT/UgP7jkwB.8.wC1Qtv1b0D0"
   audit:
     enable_protocol_inspection: true

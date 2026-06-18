@@ -4,7 +4,7 @@
  */
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
@@ -15,8 +15,8 @@ use tokio::time::Instant;
 use g3_types::metrics::NodeName;
 
 thread_local! {
-    static CACHE: RefCell<HashMap<NodeName, GroupLocalCache, FixedState>> = const {
-        RefCell::new(HashMap::with_hasher(FixedState::with_seed(0)))
+    static CACHE: RefCell<std::collections::HashMap<NodeName, GroupLocalCache, FixedState>> = const {
+        RefCell::new(std::collections::HashMap::with_hasher(FixedState::with_seed(0)))
     };
 }
 
@@ -43,7 +43,11 @@ impl GroupLocalCache {
     }
 }
 
-pub(super) fn has_valid_password(group: &NodeName, username: &str, password: &str) -> bool {
+pub(super) fn has_valid_password(
+    group: &NodeName,
+    username: &str,
+    password: &str,
+) -> bool {
     CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         let group = cache

@@ -108,7 +108,9 @@ impl LdapAuthTask {
                             debug!("unexpected response for message {}", message.id());
                             continue;
                         } else {
-                            self.handle_response(message.payload(), r)
+                            let payload = message.payload().to_vec();
+                            drop(message);
+                            self.handle_response(&payload, r)
                                 .map_err(|e| anyhow!("invalid response: {e}"))?;
                         }
                     }
@@ -140,7 +142,6 @@ impl LdapAuthTask {
                     return self.send_unbind(&mut writer).await;
                 }
                 r = ldap_rsp_receiver.recv(&mut reader) => {
-                    // detect the close of ldap server
                     match r {
                         Ok(message) => {
                             if message.id() != 0 {
@@ -173,10 +174,14 @@ impl LdapAuthTask {
     where
         W: AsyncWrite + Unpin,
     {
-        let bind_dn = format!(
-            "{}={},{}",
-            self.config.username_attribute, r.username, self.config.base_dn
-        );
+        let bind_dn = if let Some(ref suffix) = self.config.user_principal_suffix {
+            format!("{}@{}", r.username, suffix)
+        } else {
+            format!(
+                "{}={},{}",
+                self.config.username_attribute, r.username, self.config.base_dn
+            )
+        };
         let request_msg = self.request_encoder.encode(&bind_dn, &r.password);
         writer
             .write_all_flush(request_msg)
@@ -203,22 +208,23 @@ impl LdapAuthTask {
         let left = &data[result.encoded_len()..];
         let oid = LdapSequence::parse_extended_response_oid(left)?;
         if oid.data() == b"1.3.6.1.4.1.1466.20036" {
-            // The notice of disconnection unsolicited notification OID
             Ok(true)
         } else {
-            // TODO log other OID
             Ok(false)
         }
     }
 
-    fn handle_response(&self, op_data: &[u8], r: LdapAuthRequest) -> anyhow::Result<()> {
+    fn handle_response(
+        &mut self,
+        op_data: &[u8],
+        r: LdapAuthRequest,
+    ) -> anyhow::Result<()> {
         let rsp_sequence = LdapSequence::parse_bind_response(op_data)?;
         let data = rsp_sequence.data();
         let result = LdapResult::parse(data)?;
         if result.is_success() {
             let _ = r.result_sender.send(Some((r.username, r.password)));
         } else {
-            // TODO log error
             let _ = r.result_sender.send(None);
         }
         Ok(())

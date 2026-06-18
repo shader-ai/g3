@@ -22,16 +22,24 @@ escaper:
     type: direct_fixed
     resolver: default
 
-# User group: Basic auth with hashed tokens (file source)
-# Users file must contain array of { name, token } with token as xcrypt_hash or crypt(5)
-# (v1.12+: no top-level "type"; file-based auth is implied by source.type: file)
+# User group: Live LDAP bind against Samba AD DC.
+# Any user in AD can authenticate — no static password files.
+# G3 performs a UPN bind (username@gfoxai.local) and passes X-Client-Username
+# to ICAPeg. ICAPeg then does a service-account LDAP search to enrich with
+# email, display_name, and department before forwarding to URAI.
 user_group:
   - name: default_users
-    source:
-      type: file
-      path: /etc/g3proxy/users.yaml
-      format: yaml
-    refresh_interval: 60s
+    type: ldap
+    ldap_url: "ldap://host.docker.internal:389/CN=Users,DC=gfoxai,DC=local"
+    username_attribute: cn
+    user_principal_suffix: gfoxai.local
+    response_timeout: 10s
+    pool:
+      min_idle_count: 1
+    unmanaged_user:
+      name: ad_user
+      audit:
+        enable_protocol_inspection: true
 
 # Auditor: ICAP for AI governance.
 # TLS interception (SSL bump) requires a certificate generator service (e.g. g3fcgen).
@@ -42,12 +50,15 @@ auditor:
   - name: ai_governance
     protocol_inspection: {}
     tls_cert_agent:
-      # Use the hostname 'g3fcgen' (docker service name) and port 2999 (default)
-      query_peer_addr: "127.0.0.1:2999"
+      # In Docker, resolve via service DNS. Prefix with '@' to enable runtime DNS resolution.
+      # g3fcgen must listen on a non-loopback address for this to work.
+      query_peer_addr: "@g3fcgen:2999"
       query_wait_timeout: 10s
     icap_reqmod_service:
       # deploy.sh replaces this with icap://${ICAP_IP}:${ICAP_PORT}/ from deploy.env
       url: "icap://host.docker.internal:1344/reqmod"
+      disable_preview: true
+      bypass: false
     # Optional: icap_respmod_service: "icap://host.docker.internal:1344/respmod"
     application_audit_ratio: 1.0
 
