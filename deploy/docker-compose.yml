@@ -1,7 +1,40 @@
 # Build from local g3 repo: context = parent of deploy/ (g3 repo root).
 # Run from deploy/:  docker compose build && docker compose up -d
+#
+# Services:
+#   wireguard  — kernel WireGuard, terminates VPN tunnels from macOS agents
+#   g3proxy    — tcp_tproxy transparent proxy with TLS-bump + ICAP audit
+#   g3fcgen    — TLS cert generator (shares g3proxy network namespace)
+#   peer-sync  — polls GET /tunnel/peers; reconciles WG peers via wg syncconf
+#
+# icapeg runs separately on the host (see icapeg README); g3proxy reaches it
+# via host.docker.internal:1344 (deploy.env ICAP_IP).
 
 services:
+  wireguard:
+    image: ghcr.io/linuxserver/wireguard:latest
+    container_name: wireguard
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - TZ=UTC
+    volumes:
+      - ./wg:/config:rw
+      # gateway-net.sh and sync-azure-login-ips.sh are mounted read-only so
+      # `docker exec wireguard bash /config/gateway-net.sh` works after compose up.
+      - ./gateway-net.sh:/config/gateway-net.sh:ro
+      - ./sync-azure-login-ips.sh:/config/sync-azure-login-ips.sh:ro
+      - /lib/modules:/lib/modules:ro
+    ports:
+      - "${WG_PORT:-51820}:51820/udp"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv4.ip_forward=1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   g3proxy:
     build:
       context: ..
@@ -9,38 +42,19 @@ services:
     image: g3proxy:local
     container_name: g3proxy
     restart: unless-stopped
-
-    ports:
-      - "3128:3128"
-
+    depends_on:
+      - wireguard
     volumes:
       - ./logs:/var/log/g3proxy
       - ./config/g3proxy.yaml:/etc/g3proxy/g3proxy.yaml:ro
-      - ./config/users.yaml:/etc/g3proxy/users.yaml:ro
-
     environment:
-      - RUST_LOG=debug
+      - RUST_LOG=info
       - TZ=UTC
-
-    security_opt:
-      - no-new-privileges:true
-
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '1'
-          memory: 512M
-
-    depends_on:
-      - g3fcgen
-    networks:
-      - default
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
+    # TPROXY requires NET_ADMIN to bind transparent sockets.
+    cap_add:
+      - NET_ADMIN
+    # Shares wireguard network namespace so TPROXY sees inner client IPs.
+    network_mode: "service:wireguard"
     logging:
       driver: "json-file"
       options:
@@ -54,32 +68,36 @@ services:
     image: g3fcgen:local
     container_name: g3fcgen
     restart: unless-stopped
-
     volumes:
       - ./config/g3fcgen.yaml:/etc/g3fcgen/g3fcgen.yaml:ro
       - ./certs:/etc/g3fcgen/certs:ro
-
-    # Default g3fcgen listen is 127.0.0.1:2999. Set group-name to make it listen on [::]:2999 (all interfaces).
-    command: ["-c", "/etc/g3fcgen/g3fcgen.yaml", "-G", "port2999"]
-
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 128M
-
-    networks:
-      - default
-
+    command: ["-c", "/etc/g3fcgen/g3fcgen.yaml"]
+    network_mode: "service:wireguard"
     logging:
       driver: "json-file"
       options:
         max-size: "50m"
         max-file: "3"
 
-networks:
-  default:
-    driver: bridge
+  peer-sync:
+    build:
+      context: ./peer-sync
+    container_name: peer-sync
+    restart: unless-stopped
+    depends_on:
+      - wireguard
+    env_file: deploy.env
+    environment:
+      - URAI_BROKER_URL=${URAI_BROKER_URL}
+      - URAI_GATEWAY_TOKEN=${URAI_GATEWAY_TOKEN}
+      - WG_INTERFACE=wg0
+      - PEER_SYNC_INTERVAL=${PEER_SYNC_INTERVAL:-5}
+    cap_add:
+      - NET_ADMIN
+    # Shares wireguard namespace so `wg syncconf wg0 ...` works.
+    network_mode: "service:wireguard"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

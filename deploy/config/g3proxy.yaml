@@ -1,102 +1,60 @@
-# G3 Proxy Configuration - Squid Replacement
-# Reference: https://g3-project.readthedocs.io/projects/g3proxy/en/latest/
+# G3 Proxy — WireGuard gateway mode (tcp_tproxy + auditor)
+#
+# Spike S1/S2 confirmed: tcp_tproxy passes through the auditor TLS-bump + ICAP
+# chain, and g3-icap-client emits X-Client-IP from the socket peer address —
+# under TPROXY this is the original WireGuard inner IP, not the gateway IP.
+#
+# Traffic path: WireGuard client → nftables TPROXY → g3proxy tcp_tproxy
+#   → auditor (TLS bump via g3fcgen) → ICAP reqmod (icapeg whois) → target.
+#
+# No user auth: identity is cryptographically bound to the WireGuard inner IP
+# (resolved at ICAP time via /tunnel/whois).
 
 worker:
   thread_number: 4
 
-# Optional: StatsD metrics (uncomment and set target to enable; run g3statsd or any StatsD for TSDB)
+# Optional StatsD metrics
 # stat:
 #   target:
 #     udp: 127.0.0.1:8125
 #   prefix: g3proxy
 #   emit_duration: 200ms
 
-# Resolver (required for escaper)
 resolver:
   - name: default
     type: c-ares
 
-# Escaper (required for server - without this, traffic is denied)
 escaper:
   - name: default
     type: direct_fixed
     resolver: default
 
-# User group: Live LDAP bind against Samba AD DC.
-# Any user in AD can authenticate — no static password files.
-# G3 performs a UPN bind (username@gfoxai.local) and passes X-Client-Username
-# to ICAPeg. ICAPeg then does a service-account LDAP search to enrich with
-# email, display_name, and department before forwarding to URAI.
-user_group:
-  - name: default_users
-    type: ldap
-    ldap_url: "ldap://host.docker.internal:389/CN=Users,DC=gfoxai,DC=local"
-    username_attribute: cn
-    user_principal_suffix: gfoxai.local
-    response_timeout: 10s
-    pool:
-      min_idle_count: 1
-    unmanaged_user:
-      name: ad_user
-      audit:
-        enable_protocol_inspection: true
-
-# Auditor: ICAP for AI governance.
-# TLS interception (SSL bump) requires a certificate generator service (e.g. g3fcgen).
-# Here we point to a tls_cert_agent at 127.0.0.1:2999 (default for g3fcgen).
-# If you run g3proxy in Docker, make sure this address resolves to your g3fcgen service
-# (for example by changing it to \"g3fcgen:2999\" and adding a g3fcgen container).
 auditor:
   - name: ai_governance
     protocol_inspection: {}
     tls_cert_agent:
-      # In Docker, resolve via service DNS. Prefix with '@' to enable runtime DNS resolution.
-      # g3fcgen must listen on a non-loopback address for this to work.
-      query_peer_addr: "@g3fcgen:2999"
+      # g3fcgen shares the g3proxy network namespace so 127.0.0.1:2999 is correct.
+      query_peer_addr: "127.0.0.1:2999"
       query_wait_timeout: 10s
     icap_reqmod_service:
-      # deploy.sh replaces this with icap://${ICAP_IP}:${ICAP_PORT}/ from deploy.env
+      # deploy.sh substitutes ${ICAP_IP}:${ICAP_PORT} from deploy.env.
       url: "icap://host.docker.internal:1344/reqmod"
-      disable_preview: true
-      bypass: false
-    # Optional: icap_respmod_service: "icap://host.docker.internal:1344/respmod"
     application_audit_ratio: 1.0
+    # Entra auth bypass (login.microsoftonline.com) is enforced upstream in
+    # nftables-tproxy.sh via dest-IP `return` before the TPROXY mark, not in g3.
+    # g3's TLS inspection has no per-SNI no-bump path: do_intercept calls
+    # do_intercept_modern unconditionally (g3proxy/src/inspect/tls/modern.rs).
 
-# HTTP proxy server
+# Transparent proxy — no auth. TPROXY redirect from nftables sends WG inner
+# traffic here. Client identity is resolved by icapeg via X-Client-IP (inner IP).
 server:
-  - name: main_proxy
-    type: http_proxy
+  - name: tproxy
+    type: tcp_tproxy
     escaper: default
-    user_group: default_users
     auditor: ai_governance
-
     listen:
-      address: 0.0.0.0:3128
+      address: "127.0.0.1:3129"
 
-    auth_realm: "AI Governance Proxy - Please authenticate"
-
-    # Enable TLS interception for CONNECT requests
-    tls_client: {}
-
-    # Allowed destination ports
-    dst_port_filter:
-      - 21
-      - 70
-      - 80
-      - 210
-      - 280
-      - 443
-      - 488
-      - 591
-      - 777
-      - 1025-65535
-
-    req_header_recv_timeout: 30s
-    rsp_header_recv_timeout: 60s
-
-# Logging configuration
-# - default/stdout: process logs (startup, errors, etc.)
-# - task: logs each request when finished, including failures with reason
 log:
   default: stdout
   task: stdout
