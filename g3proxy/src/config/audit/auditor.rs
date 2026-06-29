@@ -41,6 +41,7 @@ pub(crate) struct AuditorConfig {
     pub(crate) tls_stream_dump: Option<StreamDumpConfig>,
     pub(crate) log_uri_max_chars: usize,
     pub(crate) h1_interception: H1InterceptionConfig,
+    pub(crate) tls_inspect_policy: ProtocolInspectPolicyBuilder,
     pub(crate) h2_inspect_policy: ProtocolInspectPolicyBuilder,
     pub(crate) h2_interception: H2InterceptionConfig,
     pub(crate) websocket_inspect_policy: ProtocolInspectPolicyBuilder,
@@ -78,6 +79,7 @@ impl AuditorConfig {
             tls_stream_dump: None,
             log_uri_max_chars: 1024,
             h1_interception: Default::default(),
+            tls_inspect_policy: Default::default(),
             h2_inspect_policy: Default::default(),
             h2_interception: Default::default(),
             websocket_inspect_policy: Default::default(),
@@ -183,6 +185,11 @@ impl AuditorConfig {
             "h1_interception" => {
                 self.h1_interception = g3_yaml::value::as_h1_interception_config(v)
                     .context(format!("invalid h1 interception value for key {k}"))?;
+                Ok(())
+            }
+            "tls_inspect_policy" => {
+                self.tls_inspect_policy = g3_yaml::value::as_protocol_inspect_policy_builder(v)
+                    .context(format!("invalid protocol inspect policy value for key {k}"))?;
                 Ok(())
             }
             "h2_inspect_policy" => {
