@@ -1,5 +1,11 @@
 # G3 Proxy — Build & Deploy
 
+> **Note:** WireGuard config + operator scripts (`gateway-net.sh`,
+> `sync-azure-login-ips.sh`) and the **peer-sync** service live in the **urai repo
+> root** at `deploy/wireguard/` and `deploy/peer-sync/` — they are urai gateway
+> infra, not part of this g3 fork. The compose here references them via
+> `../../deploy/…`; run it from the urai checkout, not a standalone g3 clone.
+
 Builds **g3proxy** and **g3fcgen** from source using Docker. No pre-built binaries are committed to the repo — everything compiles inside Docker via a multi-stage Rust build with [cargo-chef](https://github.com/LukeMathWalker/cargo-chef) for dependency caching.
 
 ---

@@ -21,11 +21,10 @@ services:
     environment:
       - TZ=UTC
     volumes:
-      - ./wg:/config:rw
-      # gateway-net.sh and sync-azure-login-ips.sh are mounted read-only so
-      # `docker exec wireguard bash /config/gateway-net.sh` works after compose up.
-      - ./gateway-net.sh:/config/gateway-net.sh:ro
-      - ./sync-azure-login-ips.sh:/config/sync-azure-login-ips.sh:ro
+      # WireGuard config + operator scripts live in the urai repo root
+      # (deploy/wireguard), not this g3 submodule. The whole dir mounts at
+      # /config so `docker exec wireguard bash /config/gateway-net.sh` works.
+      - ../../deploy/wireguard:/config:rw
       - /lib/modules:/lib/modules:ro
     ports:
       - "${WG_PORT:-51820}:51820/udp"
@@ -81,7 +80,7 @@ services:
 
   peer-sync:
     build:
-      context: ./peer-sync
+      context: ../../deploy/peer-sync
     container_name: peer-sync
     restart: unless-stopped
     depends_on:

@@ -19,6 +19,7 @@
 set -euo pipefail
 
 WG_INNER_CIDR="${WG_INNER_CIDR:-10.66.0.0/16}"
+WG_IFACE="${WG_IFACE:-wg0}"
 TPROXY_PORT="${TPROXY_PORT:-3129}"
 FWMARK="${FWMARK:-1}"
 ROUTE_TABLE="${ROUTE_TABLE:-100}"
@@ -43,7 +44,7 @@ table inet urai_tproxy {
         ip daddr @azure_login_v4 return
 
         # All TCP from WireGuard inner subnet → TPROXY to g3proxy (no auth).
-        ip saddr ${WG_INNER_CIDR} meta l4proto tcp tproxy to 127.0.0.1:${TPROXY_PORT} meta mark set ${FWMARK}
+        ip saddr ${WG_INNER_CIDR} meta l4proto tcp tproxy ip to 127.0.0.1:${TPROXY_PORT} meta mark set ${FWMARK}
     }
 
     chain postrouting {
@@ -60,8 +61,8 @@ NFTEOF
 echo "urai_tproxy table installed."
 
 # ── A2: TPROXY policy routing ─────────────────────────────────────────────────
-# Marked packets (fwmark=FWMARK) are routed via a local route so the kernel
-# delivers them to g3proxy's transparent socket instead of forwarding them.
+# Marked packets (fwmark=FWMARK) are routed via table ROUTE_TABLE so the kernel
+# delivers them locally to g3proxy (on :TPROXY_PORT) instead of forwarding them.
 if ! ip rule show | grep -q "lookup ${ROUTE_TABLE}"; then
     ip rule add fwmark "${FWMARK}" lookup "${ROUTE_TABLE}"
     echo "ip rule: fwmark ${FWMARK} → table ${ROUTE_TABLE} added."
@@ -69,12 +70,23 @@ else
     echo "ip rule: fwmark ${FWMARK} → table ${ROUTE_TABLE} already present."
 fi
 
-if ! ip route show table "${ROUTE_TABLE}" 2>/dev/null | grep -q "local 0.0.0.0/0"; then
-    ip route add local 0.0.0.0/0 dev lo table "${ROUTE_TABLE}"
-    echo "ip route: local 0.0.0.0/0 dev lo table ${ROUTE_TABLE} added."
-else
-    echo "ip route: local 0.0.0.0/0 dev lo table ${ROUTE_TABLE} already present."
-fi
+# Use `ip route replace` (idempotent): adds if missing, no-ops if present, never
+# errors — so a re-run is safe under `set -e`. (`ip route show` prints this route
+# as "local default", so a grep for "local 0.0.0.0/0" never matches and a plain
+# `add` would abort the script with "File exists" on every re-run.)
+ip route replace local 0.0.0.0/0 dev lo table "${ROUTE_TABLE}"
+echo "ip route: local 0.0.0.0/0 dev lo table ${ROUTE_TABLE} ensured."
+
+# CRITICAL: a unicast route for the WG inner subnet in the SAME table.
+# The fwmark also taints the kernel's reverse-path source validation: on local
+# input, fib_validate_source() re-looks-up the *client source* WITH the mark,
+# which lands in this table. With only `local 0.0.0.0/0 dev lo` present, that
+# reverse lookup returns RTN_LOCAL → EINVAL, so the kernel drops every TPROXY'd
+# TCP SYN as "martian source" (ICMP/UDP are unaffected as they aren't marked).
+# A unicast route for the inner subnet makes the reverse lookup resolve via the
+# WG interface so source validation passes and the SYN reaches g3proxy.
+ip route replace "${WG_INNER_CIDR}" dev "${WG_IFACE}" table "${ROUTE_TABLE}"
+echo "ip route: ${WG_INNER_CIDR} dev ${WG_IFACE} table ${ROUTE_TABLE} ensured."
 
 # ── A3a: Entra bypass via sync-azure-login-ips.sh ────────────────────────────
 # gateway-net.sh and sync-azure-login-ips.sh are volume-mounted at /config.
