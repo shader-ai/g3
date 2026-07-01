@@ -6,6 +6,7 @@
 #   g3proxy    — tcp_tproxy transparent proxy with TLS-bump + ICAP audit
 #   g3fcgen    — TLS cert generator (shares g3proxy network namespace)
 #   peer-sync  — polls GET /tunnel/peers; reconciles WG peers via wg syncconf
+#   cert-pin-watcher — streams g3proxy logs, auto-bypasses cert-pinned hostnames
 #
 # icapeg runs separately on the host (see icapeg README); g3proxy reaches it
 # via host.docker.internal:1344 (deploy.env ICAP_IP).
@@ -100,3 +101,34 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  cert-pin-watcher:
+    build:
+      context: .
+      dockerfile: sidecar.Dockerfile
+    image: cert-pin-watcher:local
+    container_name: cert-pin-watcher
+    restart: unless-stopped
+    volumes:
+      - ./config/g3proxy.yaml:/config/g3proxy.yaml:rw
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - G3_CONFIG_PATH=/config/g3proxy.yaml
+      - G3_CONTAINER=g3proxy
+      - G3_AUDITOR=ai_governance
+      - BACKEND_URL=http://host.docker.internal:8000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - g3proxy
+    networks:
+      - default
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  default:
+    driver: bridge

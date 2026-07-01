@@ -6,7 +6,7 @@
 use bytes::{Buf, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use g3_dpi::{Protocol, ProtocolInspectError, ProtocolInspector};
+use g3_dpi::{Protocol, ProtocolInspectAction, ProtocolInspectError, ProtocolInspector};
 use g3_io_ext::{FlexBufReader, OnceBufReader};
 use g3_types::net::UpstreamAddr;
 
@@ -149,26 +149,62 @@ where
                 return Ok(StreamInspection::End);
             }
             Protocol::TlsModern => {
-                if let Some(tls_interception) = self.ctx.tls_interception() {
-                    let mut tls_obj = crate::inspect::tls::TlsInterceptObject::new(
-                        self.ctx,
-                        self.upstream,
-                        tls_interception,
-                    );
-                    tls_obj.set_io(clt_r_buf, clt_r, clt_w, ups_r, ups_w);
-                    return Ok(StreamInspection::TlsModern(tls_obj));
+                match self.ctx.tls_inspect_action(self.upstream.host()) {
+                    ProtocolInspectAction::Bypass => {
+                        self.ctx
+                            .transit_inspect_bypass(
+                                OnceBufReader::new(clt_r, clt_r_buf),
+                                clt_w,
+                                OnceBufReader::new(ups_r, ups_r_buf),
+                                ups_w,
+                            )
+                            .await?;
+                        return Ok(StreamInspection::End);
+                    }
+                    ProtocolInspectAction::Block => {
+                        return Ok(StreamInspection::End);
+                    }
+                    _ => {
+                        if let Some(tls_interception) = self.ctx.tls_interception() {
+                            let mut tls_obj = crate::inspect::tls::TlsInterceptObject::new(
+                                self.ctx,
+                                self.upstream,
+                                tls_interception,
+                            );
+                            tls_obj.set_io(clt_r_buf, clt_r, clt_w, ups_r, ups_w);
+                            return Ok(StreamInspection::TlsModern(tls_obj));
+                        }
+                    }
                 }
             }
             #[cfg(feature = "vendored-tongsuo")]
             Protocol::TlsTlcp => {
-                if let Some(tls_interception) = self.ctx.tls_interception() {
-                    let mut tls_obj = crate::inspect::tls::TlsInterceptObject::new(
-                        self.ctx,
-                        self.upstream,
-                        tls_interception,
-                    );
-                    tls_obj.set_io(clt_r_buf, clt_r, clt_w, ups_r, ups_w);
-                    return Ok(StreamInspection::TlsTlcp(tls_obj));
+                match self.ctx.tls_inspect_action(self.upstream.host()) {
+                    ProtocolInspectAction::Bypass => {
+                        self.ctx
+                            .transit_inspect_bypass(
+                                OnceBufReader::new(clt_r, clt_r_buf),
+                                clt_w,
+                                OnceBufReader::new(ups_r, ups_r_buf),
+                                ups_w,
+                            )
+                            .await?;
+                        return Ok(StreamInspection::End);
+                    }
+                    ProtocolInspectAction::Block => {
+                        return Ok(StreamInspection::End);
+                    }
+                    _ => {
+                        if let Some(tls_interception) = self.ctx.tls_interception() {
+                            let mut tls_obj = crate::inspect::tls::TlsInterceptObject::new(
+                                self.ctx,
+                                self.upstream,
+                                tls_interception,
+                            );
+                            tls_obj.set_io(clt_r_buf, clt_r, clt_w, ups_r, ups_w);
+                            return Ok(StreamInspection::TlsTlcp(tls_obj));
+                        }
+                    }
                 }
             }
             Protocol::Http1 => {

@@ -40,10 +40,12 @@ auditor:
       # deploy.sh substitutes ${ICAP_IP}:${ICAP_PORT} from deploy.env.
       url: "icap://host.docker.internal:1344/reqmod"
     application_audit_ratio: 1.0
-    # Entra auth bypass (login.microsoftonline.com) is enforced upstream in
-    # nftables-tproxy.sh via dest-IP `return` before the TPROXY mark, not in g3.
-    # g3's TLS inspection has no per-SNI no-bump path: do_intercept calls
-    # do_intercept_modern unconditionally (g3proxy/src/inspect/tls/modern.rs).
+    tls_inspect_policy:
+      default: intercept
+      exact_match:
+        bypass: []
+      child_match:
+        bypass: []
 
 # Transparent proxy — no auth. TPROXY redirect from nftables sends WG inner
 # traffic here. Client identity is resolved by icapeg via X-Client-IP (inner IP).

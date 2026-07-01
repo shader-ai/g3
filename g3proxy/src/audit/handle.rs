@@ -31,6 +31,7 @@ pub(crate) struct AuditHandle {
     icap_respmod_client: Option<IcapRespmodClient>,
     #[cfg(feature = "quic")]
     stream_detour_client: Option<Arc<StreamDetourClient>>,
+    pub(crate) tls_inspect_policy: ProtocolInspectPolicy,
     pub(crate) h2_inspect_policy: ProtocolInspectPolicy,
     pub(crate) websocket_inspect_policy: ProtocolInspectPolicy,
     pub(crate) smtp_inspect_policy: ProtocolInspectPolicy,
@@ -58,6 +59,7 @@ impl AuditHandle {
             icap_respmod_client: icap_respmod_service,
             #[cfg(feature = "quic")]
             stream_detour_client: auditor.stream_detour_service.clone(),
+            tls_inspect_policy: auditor.config.tls_inspect_policy.build(),
             h2_inspect_policy: auditor.config.h2_inspect_policy.build(),
             websocket_inspect_policy: auditor.config.websocket_inspect_policy.build(),
             smtp_inspect_policy: auditor.config.smtp_inspect_policy.build(),

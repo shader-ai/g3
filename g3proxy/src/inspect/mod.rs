@@ -283,6 +283,14 @@ impl<SC: ServerConfig> StreamInspectContext<SC> {
     }
 
     #[inline]
+    pub(crate) fn tls_inspect_action(&self, host: &Host) -> ProtocolInspectAction {
+        match self.audit_handle.tls_inspect_policy.check(host) {
+            (true, policy_action) => policy_action,
+            (false, missing_policy_action) => missing_policy_action,
+        }
+    }
+
+    #[inline]
     fn h2_inspect_action(&self, host: &Host) -> ProtocolInspectAction {
         match self.audit_handle.h2_inspect_policy.check(host) {
             (true, policy_action) => policy_action,
